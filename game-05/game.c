@@ -6,12 +6,12 @@
 
 #include "palette.h"
 
-#define FILENAME "canvas"
+#include "canvas.cvs"
 
+#define SAVE_FILE "canvas"
+#define LOAD_FILE "canvas"
 
 #define GET_HIGH_BIT(x) ((1 << 15) & (x))
-
-BOOL quit=FALSE;
 
 int cxClient=0, cyClient=0;
 
@@ -28,12 +28,11 @@ COLORREF thumbGridColor;
 int mouseX=0,mouseY=0;
 BOOL mouseLeftButtonDown=FALSE,mouseRightButtonDown=FALSE;
 
-int exitKeyPressed;
 int saveKeyPressed;
 int loadKeyPressed;
 
 BOOL hold=FALSE;
-int idx=0;
+int idx=-1;
 
 int *canvas=NULL;
 int canvasWidth,canvasHeight,canvasFrames;
@@ -46,9 +45,9 @@ void saveSprite(char *name,int *canvas,int w,int h,int frames) {
 	fprintf(fout,"#ifndef %s_H\n",name);
 	fprintf(fout,"#define %s_H\n\n",name);
 	fprintf(fout,"#include <windows.h>\n\n");
+	fprintf(fout,"#define %s_NUM_FRAMES %d\n",name,frames);
 	fprintf(fout,"#define %s_WIDTH %d\n",name,w);
-	fprintf(fout,"#define %s_HEIGHT %d\n",name,h);
-	fprintf(fout,"#define %s_NUM_FRAMES %d\n\n",name,frames);
+	fprintf(fout,"#define %s_HEIGHT %d\n\n",name,h);
 	fprintf(fout,"int %s_pixels [] = {\n",name);
 	for(int k=0;k<frames;k++) {
 		if(k=0) fprintf(fout,"\n");
@@ -75,9 +74,9 @@ BOOL loadSprite(char *name,int **canvas,int *w,int *h,int *frames) {
 	fscanf(fin,"#ifndef %*s\n");
 	fscanf(fin,"#define %*s\n\n");
 	fscanf(fin,"#include <windows.h>\n\n");
+	if(fscanf(fin,"#define %*s %d\n",frames)!=1) return FALSE;
 	if(fscanf(fin,"#define %*s %d\n",w)!=1) return FALSE;
 	if(fscanf(fin,"#define %*s %d\n",h)!=1) return FALSE;
-	if(fscanf(fin,"#define %*s %d\n\n",frames)!=1) return FALSE;
 	fscanf(fin,"int %*s [] = {\n");
 	(*canvas)=malloc(sizeof(int)*((*w)*(*h)*(*frames)));
 	if(!(*canvas)) return FALSE;
@@ -196,7 +195,7 @@ LRESULT CALLBACK WndProc (HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
 			DeleteObject(hBitmap);
 
-			if(!loadSprite(FILENAME,&canvas,&canvasWidth,&canvasHeight,&canvasFrames)) {
+			if(!loadSprite(LOAD_FILE,&canvas,&canvasWidth,&canvasHeight,&canvasFrames)) {
 				canvasWidth=32;
 				canvasHeight=32;
 				canvasFrames=1;
@@ -309,26 +308,21 @@ LRESULT CALLBACK WndProc (HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 				}
 			}
 
-			SHORT exitKeyPressed = GET_HIGH_BIT(GetAsyncKeyState(VK_ESCAPE));						
 			SHORT saveKeyPressed = GET_HIGH_BIT(GetAsyncKeyState('S'));						
 			SHORT loadKeyPressed = GET_HIGH_BIT(GetAsyncKeyState('L'));						
 			SHORT gridKeyPressed = GET_HIGH_BIT(GetAsyncKeyState('G'));						
 
-			if(exitKeyPressed) {
-				quit=TRUE;
-			}
-
 			if(saveKeyPressed) {
 				if(!hold) {
 					hold=TRUE;
-					saveSprite(FILENAME,canvas,gridWidth,gridHeight,1);
+					saveSprite(SAVE_FILE,canvas,gridWidth,gridHeight,1);
 				} 
 			}
 
 			if(loadKeyPressed) {
 				if(!hold) {
 					hold=TRUE;
-					loadSprite(FILENAME,&canvas,&canvasWidth,&canvasHeight,&canvasFrames);
+					loadSprite(LOAD_FILE,&canvas,&canvasWidth,&canvasHeight,&canvasFrames);
 					gridWidth=canvasWidth;
 					gridHeight=canvasHeight;
 				} 
@@ -344,7 +338,6 @@ LRESULT CALLBACK WndProc (HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 							
 			if(	!mouseLeftButtonDown && 
 					!mouseRightButtonDown &&
-					!exitKeyPressed &&
 					!saveKeyPressed &&
 					!loadKeyPressed &&
 					!gridKeyPressed) {
@@ -426,7 +419,7 @@ int WINAPI WinMain(HINSTANCE hInstance,HINSTANCE hPrevInstance,PSTR szCmdLine, i
 	ShowWindow(hwnd,iCmdShow);
 	UpdateWindow(hwnd);
 
-	while(GetMessage(&msg,NULL,0,0) && !quit) {
+	while(GetMessage(&msg,NULL,0,0)) {
 		TranslateMessage(&msg);
 		DispatchMessage(&msg);
 	}
