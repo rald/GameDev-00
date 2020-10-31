@@ -2,13 +2,14 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <math.h>
 
 #include "palette.h"
 
-#define FILENAME "canvas"
-
-
+#define CANVAS_NAME "canvas"
+#define FONT_NAME "font"
+#define LOG_FILE "logs.txt"
 
 #define GET_HIGH_BIT(x) ((1 << 15) & (x))
 
@@ -37,7 +38,12 @@ BOOL hold=FALSE;
 int idx=0;
 
 int *canvas=NULL;
-int canvasWidth,canvasHeight,canvasFrames;
+int canvasWidth,canvasHeight,canvasNumFrames;
+
+int *font=NULL;
+int fontWidth,fontHeight,fontNumFrames;
+
+FILE *logfout;
 
 char *strupr(char *s) {
 	char *i=s;
@@ -85,38 +91,67 @@ void saveSprite(char *name,int *canvas,int w,int h,int frames) {
 }
 
 BOOL loadSprite(char *name,int **canvas,int *w,int *h,int *frames) {
+	int line=0;
 	char filename[256];
 	strcpy(filename,name);
 	strcat(filename,".cvs");
 	FILE *fin=fopen(filename,"r");
 	if(!fin) return FALSE;
+	
+	line++;
 	fscanf(fin,"#ifndef %*s\n");
+	
+	line++;
 	fscanf(fin,"#define %*s\n\n");
-	if(fscanf(fin,"#define %*s %d\n",w)!=1) return FALSE;
-	if(fscanf(fin,"#define %*s %d\n",h)!=1) return FALSE;
-	if(fscanf(fin,"#define %*s %d\n\n",frames)!=1) return FALSE;
+	
+	line++;
+	if(fscanf(fin,"#define %*s %d\n",w)!=1) {
+		fprintf(logfout,"Error Line %d: invalid width\n",line);
+		return FALSE;
+	}
+	
+	line++;
+	if(fscanf(fin,"#define %*s %d\n",h)!=1) {
+		fprintf(logfout,"Error Line %d: invalid height\n",line);
+		return FALSE;
+	}
+	
+	line++;
+	if(fscanf(fin,"#define %*s %d\n\n",frames)!=1) {
+		fprintf(logfout,"Error Line %d: invalid num frames\n",line);
+		return FALSE;
+	}
+	
+	line++;
 	fscanf(fin,"int %*s [] = {\n");
+	
 	(*canvas)=malloc(sizeof(int)*((*w)*(*h)*(*frames)));
 	if(!(*canvas)) return FALSE;
+	
 	for(int k=0;k<(*frames);k++) {
 		fscanf(fin,"\n/* %*d */\n\n");
+		line+=3;
 		for(int j=0;j<(*h);j++) {
 			for(int i=0;i<(*w);i++) {
 				int idx=0;
 				if(fscanf(fin,"%d,",&idx)!=1) {
+					fprintf(logfout,"Error Line %d: data error\n",line);
 					free(*canvas);
 					(*canvas)=NULL;
 					return FALSE;
 				}
 				(*canvas)[i+j*(*w)+k*(*w)*(*h)]=idx;
 			}
+			line++;
 			fscanf(fin,"\n");
 		}
+		line++;
 		fscanf(fin,"\n");
 	}
 	fscanf(fin,"};\n\n");
 	fscanf(fin,"#endif\n");
 	fclose(fin);
+	fflush(logfout);
 	return TRUE;
 }
 
@@ -186,6 +221,22 @@ void drawThumbnail(HDC hdc,int x,int y,int w,int h,int size,int frame,int *canva
 	drawSprite(hdc,x,y,w,h,size,frame,canvas,paletteColors,paletteNumColors,paletteTransparentIndex);
 }
 
+void drawText(HDC hdc,int x,int y,char *text,int size,int *font,int w,int h,int n,COLORREF color) {
+	int cx=x,cy=y;
+	for(int k=0;k<strlen(text);k++) {
+		for(int j=0;j<h;j++) {
+			for(int i=0;i<w;i++) {
+				unsigned char l=text[k];
+				int idx=font[i+j*w+l*w*h];
+				if(idx!=0) {
+					fillRect(hdc,i*size+cx,j*size+cy,size,size,color);
+				}
+			}
+		}
+		cx+=w*size;
+	}
+}
+ 
 LRESULT CALLBACK WndProc (HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 	HDC hdc;
 	static HDC backdc;
@@ -197,6 +248,8 @@ LRESULT CALLBACK WndProc (HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 	switch(msg) {
 
 		case WM_CREATE:
+
+			logfout=fopen(LOG_FILE,"a");
 
 			hdc=GetDC(hwnd);
 
@@ -216,12 +269,16 @@ LRESULT CALLBACK WndProc (HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
 			DeleteObject(hBitmap);
 
-			if(!loadSprite(FILENAME,&canvas,&canvasWidth,&canvasHeight,&canvasFrames)) {
+			if(!loadSprite(FONT_NAME,&font,&fontWidth,&fontHeight,&fontNumFrames)) {
+				exit(-1);
+			}
+
+			if(!loadSprite(CANVAS_NAME,&canvas,&canvasWidth,&canvasHeight,&canvasNumFrames)) {
 				canvasWidth=32;
 				canvasHeight=32;
-				canvasFrames=1;
-				canvas=malloc(sizeof(int)*(canvasWidth*canvasHeight*canvasFrames));
-				for(int i=0;i<canvasWidth*canvasHeight*canvasFrames;i++) {
+				canvasNumFrames=1;
+				canvas=malloc(sizeof(int)*(canvasWidth*canvasHeight*canvasNumFrames));
+				for(int i=0;i<canvasWidth*canvasHeight*canvasNumFrames;i++) {
 					canvas[i]=0;
 				}
 			}
@@ -277,6 +334,8 @@ LRESULT CALLBACK WndProc (HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 			drawGrid(backdc,gridX,gridY,gridWidth,gridHeight,gridSize,gridColor,gridShow,0,canvas,palette_colors,palette_LENGTH,palette_TRANSPARENT_INDEX);
 			drawPalette(backdc,paletteX,paletteY,paletteGridSize,paletteGridColor,palette_colors,palette_LENGTH,paletteColorIndex,4);
 			drawThumbnail(backdc,thumbX,thumbY,gridWidth,gridHeight,thumbPixelSize,0,canvas,thumbGridColor,palette_colors,palette_LENGTH,palette_TRANSPARENT_INDEX);
+
+//			drawText(backdc,0,0,"Hello World",1,font,fontWidth,fontHeight,fontNumFrames,palette_colors[3]);
 			
 			hdc=BeginPaint(hwnd,&ps);
 			BitBlt(hdc,0,0,cxClient,cyClient,backdc,0,0,SRCCOPY);
@@ -341,14 +400,14 @@ LRESULT CALLBACK WndProc (HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 			if(saveKeyPressed) {
 				if(!hold) {
 					hold=TRUE;
-					saveSprite(FILENAME,canvas,gridWidth,gridHeight,1);
+					saveSprite(CANVAS_NAME,canvas,gridWidth,gridHeight,1);
 				} 
 			}
 
 			if(loadKeyPressed) {
 				if(!hold) {
 					hold=TRUE;
-					loadSprite(FILENAME,&canvas,&canvasWidth,&canvasHeight,&canvasFrames);
+					loadSprite(CANVAS_NAME,&canvas,&canvasWidth,&canvasHeight,&canvasNumFrames);
 					gridWidth=canvasWidth;
 					gridHeight=canvasHeight;
 				} 
@@ -403,6 +462,7 @@ LRESULT CALLBACK WndProc (HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 			break;
 
 		case WM_DESTROY:
+			fclose(logfout);
 			PostQuitMessage(0);
 			break;
 		
